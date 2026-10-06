@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 import tornado.httpclient
 import tornado.ioloop
 import tornado.web
+from tidalapi.types import ItemOrder, OrderDirection
 
 from . import expand as expand_mod
 from . import images as images_mod
@@ -839,13 +840,30 @@ class LibraryHandler(BaseHandler):
         if section == "playlists":
             limit = min(limit, 50)
 
+        # Title A-Z is what Tidal answers with when no order is given, and so
+        # what this endpoint answered before it took one.
+        order = self.get_argument("order", "NAME")
+        direction = self.get_argument("direction", "ASC")
+        track_orders = {"DATE": ItemOrder.Date, "ARTIST": ItemOrder.Artist,
+                        "ALBUM": ItemOrder.Album, "NAME": ItemOrder.Name}
+        if section == "tracks" and (order not in track_orders or direction not in ("ASC", "DESC")):
+            self.set_status(400)
+            self.write_json({"error": "unknown track sort"})
+            return
+
         session = self.session_or_503()
         if session is None:
             return
 
         def work():
             favorites = session.user.favorites
-            found = list(getattr(favorites, section)(limit=limit, offset=offset) or [])
+            if section == "tracks":
+                found = list(favorites.tracks(
+                    limit=limit, offset=offset, order=track_orders[order],
+                    order_direction=OrderDirection.Ascending if direction == "ASC"
+                    else OrderDirection.Descending) or [])
+            else:
+                found = list(getattr(favorites, section)(limit=limit, offset=offset) or [])
             # How many there are in all, counting the ones Tidal will not hand
             # over. Best effort: without it the old rule below still applies.
             try:
@@ -877,6 +895,11 @@ class LibraryHandler(BaseHandler):
         }
         if total is not None:
             answer["total"] = total
+        if section == "tracks":
+            # Said back, so the UI can tell a companion that sorted from an
+            # older one that ignored the argument and answered in title order.
+            answer["order"] = order
+            answer["direction"] = direction
         self.write_json(answer)
 
 

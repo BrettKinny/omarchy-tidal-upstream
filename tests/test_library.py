@@ -1,4 +1,4 @@
-"""The favourites endpoint, through HTTP: how a list is paged."""
+"""The favourites endpoint, through HTTP: how a list is paged and sorted."""
 
 import importlib
 import inspect
@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock
 
+from tidalapi.types import ItemOrder, OrderDirection
 from tornado.testing import AsyncHTTPTestCase
 from tornado.web import Application
 
@@ -57,3 +58,34 @@ class TestLibrary(AsyncHTTPTestCase):
         body = json.loads(self.fetch("/library?section=playlists&limit=100&offset=50").body)
         self.favorites.playlists.assert_called_once_with(limit=50, offset=50)
         assert body["limit"] == 50, "said back, so the next page starts in the right place"
+
+    def test_with_no_order_given_it_is_title_order_as_it_was_before_there_was_a_choice(self):
+        response = self.fetch("/library?section=tracks")
+        assert response.code == 200
+        self.favorites.tracks.assert_called_once_with(
+            limit=100, offset=0, order=ItemOrder.Name,
+            order_direction=OrderDirection.Ascending)
+
+    def test_all_orders_and_directions_with_paging(self):
+        for order in (ItemOrder.Date, ItemOrder.Artist, ItemOrder.Album, ItemOrder.Name):
+            for direction in (OrderDirection.Ascending, OrderDirection.Descending):
+                response = self.fetch(f"/library?section=tracks&limit=25&offset=50"
+                                      f"&order={order.value}&direction={direction.value}")
+                assert response.code == 200
+                self.favorites.tracks.assert_called_with(
+                    limit=25, offset=50, order=order, order_direction=direction)
+                body = json.loads(response.body)
+                assert body["offset"] == 50
+                # Echoed, which is how the UI knows the sort was applied.
+                assert (body["order"], body["direction"]) == (order.value, direction.value)
+
+    def test_invalid_sort_does_not_call_tidal(self):
+        for query in ("order=UNKNOWN", "direction=SIDEWAYS"):
+            assert self.fetch(f"/library?section=tracks&{query}").code == 400
+        self.favorites.tracks.assert_not_called()
+
+    def test_other_sections_keep_their_existing_api(self):
+        assert self.fetch("/library?section=albums&order=ARTIST&direction=ASC").code == 200
+        self.favorites.albums.assert_called_once_with(limit=100, offset=0)
+        body = json.loads(self.fetch("/library?section=albums").body)
+        assert "order" not in body, "only tracks can be sorted, so only tracks say so"
