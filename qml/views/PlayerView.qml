@@ -133,7 +133,7 @@ Item {
       root.loadLibraryPage(true)
       return
     }
-    root.librarySection = ""
+    root.leaveLibrary()
 
     // The shelf page owns tidal:home. Browsing it as well would spend a round
     // trip on a folder list nobody is going to see.
@@ -252,7 +252,8 @@ Item {
   // it still said "tracks, and there are more": scrolling fetched the next
   // page of favourites and appended it to the rows on screen. The page's own
   // check is only that the uri has not changed since it was asked for, and it
-  // had not -- it was already "queue".
+  // had not -- it was already "queue". After My Albums or My Artists it also
+  // still said "a wall of covers", and gridActive drew the queue as one.
   function leaveLibrary() {
     root.librarySection = ""
     root.libraryMore = false
