@@ -193,9 +193,16 @@ Item {
       var items = (payload && payload.items) || []
       var rows = Library.fromEntries(items)
       root.rows = first ? rows : root.rows.concat(rows)
-      root.libraryOffset = offset + items.length
-      root.libraryMore = !!(payload && payload.more) && items.length > 0
-      if (root.rows.length === 0) root.errorText = "Nothing here."
+      // Stepped by position, not by rows: a favourite Tidal no longer offers
+      // keeps its place in the list and is missing from the page, so a page
+      // of a hundred positions can hold ninety-seven rows. Counting rows asked
+      // for the same three again. A companion that reports the total knows
+      // where the list ends; an older one ends it at the first short page.
+      var counted = !!payload && typeof payload.total === "number"
+      var step = payload && payload.limit > 0 ? payload.limit : items.length
+      root.libraryOffset = offset + (counted ? step : items.length)
+      root.libraryMore = !!(payload && payload.more) && (counted || items.length > 0)
+      if (root.rows.length === 0 && !root.libraryMore) root.errorText = "Nothing here."
     }, function(err) {
       if (!root.alive || root.currentUri !== forUri) return
       root.libraryLoading = false

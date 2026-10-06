@@ -170,7 +170,8 @@ function playlistCreate(name, onOk, onErr) {
 }
 
 // A page of someone's favourites, with the metadata already attached.
-// -> { section, offset, limit, items: [...], more }
+// -> { section, offset, limit, items: [...], more, total? }. `limit` is the
+// one used, which may be less than asked.
 function library(section, limit, offset, onOk, onErr) {
   _request("GET", "/library" + _q({ section: section, limit: limit, offset: offset }),
            null, onOk, onErr)

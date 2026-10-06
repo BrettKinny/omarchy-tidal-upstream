@@ -834,6 +834,10 @@ class LibraryHandler(BaseHandler):
             offset = max(0, int(self.get_argument("offset", "0")))
         except ValueError:
             limit, offset = 100, 0
+        # Tidal answers 400 for more than fifty favourite playlists at a time.
+        # The answer says the limit it used, which is what the client steps by.
+        if section == "playlists":
+            limit = min(limit, 50)
 
         session = self.session_or_503()
         if session is None:
@@ -841,10 +845,17 @@ class LibraryHandler(BaseHandler):
 
         def work():
             favorites = session.user.favorites
-            return list(getattr(favorites, section)(limit=limit, offset=offset) or [])
+            found = list(getattr(favorites, section)(limit=limit, offset=offset) or [])
+            # How many there are in all, counting the ones Tidal will not hand
+            # over. Best effort: without it the old rule below still applies.
+            try:
+                total = int(getattr(favorites, f"get_{section}_count")())
+            except Exception:
+                total = None
+            return found, total
 
         try:
-            found = await self.run(work)
+            found, total = await self.run(work)
         except Exception as exc:
             logger.warning("omarchy-tidal: %s favourites failed: %s", section, exc)
             self.set_status(502)
@@ -852,15 +863,21 @@ class LibraryHandler(BaseHandler):
             return
 
         items = [payload for payload in (_item_payload(item) for item in found) if payload]
-        self.write_json({
+        answer = {
             "section": section,
             "offset": offset,
             "limit": limit,
             "items": items,
-            # Tidal does not report a total, so "there may be more" is the
-            # honest answer: a short page is the end of the list.
-            "more": len(found) >= limit,
-        })
+            # A page is a range of positions, not a number of rows: a
+            # favourite that is no longer available keeps its position and is
+            # left out of the page. Taking a short page for the end of the
+            # list stopped a library of 195 tracks at 97. The total counts
+            # those positions, so it is what says whether there is more.
+            "more": offset + limit < total if total is not None else len(found) >= limit,
+        }
+        if total is not None:
+            answer["total"] = total
+        self.write_json(answer)
 
 
 def _track_ids(uris) -> list[str]:
